@@ -10,7 +10,7 @@ ELEC0134 project at UCL for classifying brain scans and their corresponding tumo
 - Ubuntu 20.04 TLS (x86)
 - System:
   - CPU: Intel i7-8550U
-  - GPU: NVIDIA GeForce MX150 (+ CUDA drivers)
+  - GPU: NVIDIA GeForce MX150 (CUDA drivers enabled)
 
 ## Contents:
 
@@ -29,16 +29,7 @@ ELEC0134 project at UCL for classifying brain scans and their corresponding tumo
 
 See `Project.toml` and `Manifest.toml` for a detailed breakdown of libraries used and their recursive dependencies.
 
-- `Flux.jl`
-- `CSV.jl`
-- `DataFrames.jl`
-- `Plots.jl`
-- `Printf.jl`
-- `Images.jl`
-- `BSON.jl`
-- 
-
-``` julia
+```
 [587475ba] Flux v0.12.8
 [916415d5] Images v0.25.0
 [336ed68f] CSV v0.9.11
