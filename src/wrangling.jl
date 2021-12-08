@@ -30,12 +30,12 @@ function encodeLabels(rawLabels::Vector{String};
 end
 
 function loadData(labelPath::String, imgPath::String;
-                  labelClass=:multi, numType=Float32)::Tuple
+                  labelClass=:multi, dataType=Float32)::Tuple
     d = CSV.File(labelPath) |>
         DataFrame .|>
         String
-    Y = encodeLabels(d.label; labelType=labelClass) .|> numType
-    X = [Images.load(sprintfPath(imgPath, i)) .|> Gray{numType} for i in 0:2999]
+    Y = encodeLabels(d.label; labelType=labelClass) .|> dataType
+    X = [Images.load(sprintfPath(imgPath, i)) .|> dataType for i in 0:2999]
     return (X, Y)
 end
 
