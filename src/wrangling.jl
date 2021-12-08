@@ -1,22 +1,41 @@
-#=
-Data wrangling for tumor detection dataset.
+module Data
 
-Dependencies:
-`using CSV, DataFrames, Printf`
-=#
+using CSV, DataFrames
+using Printf, Images
 
-raw = CSV.File("data/label.csv") |> DataFrame
+const fwrdLabelMap = Dict(
+    "no_tumor"          => 1.0,
+    "glioma_tumor"      => 2.0,
+    "pituitary_tumor"   => 3.0,
+    "meningioma_tumor"  => 4.0
+)
+const backLabelMap = Dict(
+    1.0 => "no_tumor",
+    2.0 => "glioma_tumor",
+    3.0 => "pituitary_tumor",
+    4.0 => "meningioma_tumor"
+)
 
-# binary case:
-# generate binary labels for brain tumor images == 'Y_bin'
-raw.label = map(x -> x == "no_tumor" ? false : true,
-                raw.label)
+label2Float(x::String, map::Dict) = map[x]
+float2Label(x::String, map::Dict) = map[x]
+sprintfPath(dirPath, i) = dirPath * @sprintf("IMAGE_%04i.png", i)
 
+function encodeLabels(rawLabels::Vector{String};
+                      labelType=:multi, numType=Float32)
+    if labelType == :multi
+        return map(x -> label2Float(x, fwrdLabelMap), rawLabels)
+    elseif labelType == :binary
+        return map(x -> x == "no_tumor" ? 0.0 : 1.0, rawLabels)
+    end
+end
 
-#= Import images data input == 'X' =#
+function loadData(labelPath::String, imgPath::String; labelClass=:multi)
+    d = CSV.File(labelPath) |>
+        DataFrame .|>
+        String
+    Y = encodeLabels(d.label; labelType=labelClass)
+    X = [Images.load(sprintfPath(imgPath, i)) .|> Gray{numType} for i in 0:2999]
+    return (X, Y)
+end
 
-# using @sprintf macro to format zeroes-prefixed integer
-imagePaths = ["data/image/IMAGE_" * @sprintf("%04i", i) * ".jpg" for i in 0:2999]
-images = load.(img_paths)
-
-# general case:
+end # module
