@@ -21,7 +21,7 @@ float2Label(x::String, map::Dict) = map[x]
 sprintfPath(dirPath, i) = dirPath * @sprintf("IMAGE_%04i.png", i)
 
 function encodeLabels(rawLabels::Vector{String};
-                      labelType=:multi, numType=Float32)
+                      labelType=:multi)::Vector{Float64}
     if labelType == :multi
         return map(x -> label2Float(x, fwrdLabelMap), rawLabels)
     elseif labelType == :binary
@@ -29,11 +29,12 @@ function encodeLabels(rawLabels::Vector{String};
     end
 end
 
-function loadData(labelPath::String, imgPath::String; labelClass=:multi)
+function loadData(labelPath::String, imgPath::String;
+                  labelClass=:multi, numType=Float32)::Tuple
     d = CSV.File(labelPath) |>
         DataFrame .|>
         String
-    Y = encodeLabels(d.label; labelType=labelClass)
+    Y = encodeLabels(d.label; labelType=labelClass) .|> numType
     X = [Images.load(sprintfPath(imgPath, i)) .|> Gray{numType} for i in 0:2999]
     return (X, Y)
 end
