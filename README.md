@@ -4,13 +4,18 @@ ELEC0134 project at UCL for classifying brain scans and their corresponding tumo
 
 ## Coverage:
 
-(developed and tested on)
+Development and runtime on JuliaHub cloud instance provider.
+More information available [here](https://juliahub.com/lp/.
 
-- Julia v1.7.0 (binaries available [here](https://julialang.org/downloads/))
-- Ubuntu 20.04 TLS (x86)
-- System:
-  - CPU: Intel i7-8550U
-  - GPU: NVIDIA GeForce MX150 (CUDA drivers enabled)
+Instance details:
+
+- Julia v1.6 binaries
+- Intel XEON CPU E5-2686 v4 @ 2.30GHz
+	- 8 vCPU
+	- 16 GB memory / vCPU
+- NVIDIA Tesla V100-SXM2 16GB
+	- CUDA version 11.2
+	- Driver version 460.73.01
 
 ## Contents:
 
