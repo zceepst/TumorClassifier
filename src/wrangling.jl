@@ -36,7 +36,7 @@ function loadData(labelPath::String, imgPath::String;
         String
     Y = encodeLabels(d.label; labelType=labelClass)
     vecX = [Images.load(sprintfPath(imgPath, i)) .|> dataType for i in 0:2999]
-    X = reshapeInput(X, dataType)
+    X = reshapeInput(vecX, dataType)
     return (X, Y)
 end
 

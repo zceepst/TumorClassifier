@@ -38,8 +38,6 @@ function leNetModel(; imgSize=(512,512,1), nClasses=4,
     return Chain(
         Conv( (5,5), imgSize[end] => 6, relu ),
         MaxPool( (2,2) ),
-        Conv( (5,5), 6 => 16, relu ),
-        MaxPool( (2,2) ),
         flatten,
         Dense( prod(outputConvSize), 120, relu ),
         Dense( 120, 84, relu ),
