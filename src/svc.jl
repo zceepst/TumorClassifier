@@ -68,7 +68,7 @@ function binaryEncoder(ŷ, y)
     )
 end
 
-function trainEval(Model, save=false, savePath="runs/")
+function trainEval(Model, save=false, savePath="models/SVC/")
     @info "Loading training and testing data"
     Xtr, ytr, Xte, yte = importData()
     @info "Generating a $(Model) model, then fitting to training dataset"

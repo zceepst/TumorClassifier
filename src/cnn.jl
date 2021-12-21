@@ -1,91 +1,92 @@
-module LeNet
+module CNN
 
 using ..TumorClassifier
 using Flux
-using Flux: onehotbatch, onecold
+using Flux.Data: DataLoader
 using Flux.Optimise: Optimiser, WeightDecay
+using Flux: onehotbatch, onecold
 using Flux.Losses: logitcrossentropy
-using Flux: DataLoader
 using Statistics, Random
-using CUDA, BSON
-using ProgressMeter
-using ProgressMeter: @showprogress
-using TensorBoardLogger
-using TensorBoardLogger: TBLogger, tb_overwrite, set_step!, set_step_increment!
-using Logging
 using Logging: with_logger
+using TensorBoardLogger: TBLogger, tb_overwrite, set_step!, set_step_increment!
+using ProgressMeter: @showprogress
+using Images
+using CUDA
+import MLDatasets
+import BSON
 
-CUDA.allowscalar(false) # disable scalar GPU indexing
-
-"Model and training parameters data type"
-Base.@kwdef mutable struct Args
-    classifierType = :multi # classifier problem switch (:multi/:binary)
-    η = 3e-4            # learning rate
-    λ = 0               # L2 regularizer term (weight decay)
-    batchSize = 128     # batch size
-    epochs = 10         # training epochs
-    seed = 2            # seed > 0 for reproducibility (Random.seed)
-    useCuda = true      # CUDA acceleration switch
-    infoTime = 1        # report training progress every `infoTime` epochs
-    checkTime = 5       # save model during training every `checkTime` epochs
-    tbLogger = true     # TensorBoard logging switch
-    savePath = "runs/"  # model results path
-end
-
-"Model constructor"
-function leNetModel(; imgSize=(512,512,1), nClasses=4,
-               outputConvSize=(div(imgSize[1], 4) - 3, div(imgSize[2], 4) - 3, 16))
+"LeNet5 constructor"
+function LeNet5(; imgsize=(28,28,1), nclasses=10)
+    out_conv_size = (imgsize[1]÷4 - 3, imgsize[2]÷4 - 3, 16)
     return Chain(
-        Conv( (5,5), imgSize[end] => 6, relu ),
-        MaxPool( (2,2) ),
+        Conv((5, 5), imgsize[end]=>6, relu),
+        MaxPool((2, 2)),
+        Conv((5, 5), 6=>16, relu),
+        MaxPool((2, 2)),
         flatten,
-        Dense( prod(outputConvSize), 120, relu ),
-        Dense( 120, 84, relu ),
-        Dense( 84, nClasses )
+        Dense(prod(out_conv_size), 120, relu),
+        Dense(120, 84, relu),
+        Dense(84, nclasses)
     )
 end
 
-"Prepare training and testing data sources, then load into DataLoader type for supply to model train/test routine, return trainLoader, testLoader tuple"
-function dataPrepGet(args)
-    X, Y = TumorClassifier.Data.loadData("data/label.csv", "data/image/png/";
-                                         labelClass=args.classifierType, dataType=Float32)
-    (xTrain, yTrain), (xTest, yTest) = TumorClassifier.Data.splitTrainTest(X, Y; isRandom=false, split=2)
-    # reshape train/test inputs to allow for convolution layers at later stages
+"""
+    binaryGetData(args)
 
-    @info "Size X train: $(size(xTrain))    Size X test: $(size(xTest))"
-    @info "Size Y train: $(size(yTrain))    Size Y test: $(size(yTest)))"
-
-    xTrain = reshape(xTrain, 512, 512, 1, :)
-    xTest = reshape(xTest, 512, 512, 1, :)
-
-    @info "Post reshape:"
-    @info "Size X train: $(size(xTrain))    Size X test: $(size(xTest))"
-
-    # encode with Flux.onehotbatch
-    yTrain, yTest = Flux.onehotbatch(yTrain, 1:4), Flux.onehotbatch(yTest, 1:4)
-    @info "Post encoded"
-    @info "Size Y train: $(size(yTrain))    Size Y test: $(size(yTest))"
-
-    # wrap data with Flux.DataLoader
-    trainLoader = Flux.DataLoader(
-        (xTrain, yTrain),
-        batchsize = args.batchSize,
-        shuffle = true
-    )
-    testLoader = Flux.DataLoader(
-        (xTrain, yTest),
-        batchsize = args.batchSize
-    )
-    return (trainLoader, testLoader)
+Function to assemble training and testing data `DataLoader` data.
+Returns tuple of training and testing data loaders.
+"""
+function getData(args)
+    XTrain, yTrain, XTest, yTest = trainData(args.labelType)
+    labelEnc = args.labelType == :binary ? (0:1) : (1:4) # setting label encoding based on task A or B
+    yTrain, yTest = onehotbatch(yTrain, labelEnc), onehotbatch(yTest, labelEnc)
+    trainLoader = DataLoader((XTrain, yTrain), batchsize=args.batchsize, shuffle=true)
+    testLoader = DataLoader((XTest, yTest), batchsize=args.batchsize)
+    return trainLoader, testLoader
 end
 
-"Custom loss function"
-loss(ŷ, y) = Flux.logitcrossentropy(ŷ, y)
-"Shortcut rounding function"
-round4(x) = round(x, digits=4)
+"""
+    trainData(class=:binary)
 
+Labelclass aware data fetching utlity.
+Returns pre-encode/load X, y splits.
+"""
+function trainData(class=:binary)
+    # look to make dims = 90 part of Args later
+    X = TumorClassifier.locTrain.images |>
+        x -> imresize.(x, 90, 90) |>
+        x -> TumorClassifier.Data.reshapeInput(x, Float32, 90)
+    # reshape(x, 90, 90, 1, :) after split, avoid D-loss 
+    perm = randperm(3000)
+    # train = 2500, test = 500 samples
+    XTrain = X[:,:,perm[1:2500]] |> 
+        x -> reshape(x, 90, 90, 1, :)
+    XTest = X[:,:,perm[2501:3000]] |>
+        x -> reshape(x, 90, 90, 1, :)
+    y = TumorClassifier.locTrain.labels.label |>
+        x -> TumorClassifier.Data.encodeLabels(x; labelType=class, type=Int64)
+    yTrain = y[perm[1:2500]]
+    yTest = y[perm[2501:3000]]
+    return (XTrain, yTrain, XTest, yTest)
+end
 
-"Loss evaluation function, return the loss and accuracy of the model on data X, Y as a named tuple: (loss = ..., acc = ...)"
+"Data loader for evaluating the model on the test set (200 images)"
+function testDataLoader(batchsize, class=:binary)
+    X = TumorClassifier.locTest.images |>
+        x -> imresize.(x, 90, 90) |>
+        x -> TumorClassifier.Data.reshapeInput(x, Float32, 90) |>
+        x -> reshape(x, 90, 90, 1, :)
+    y = TumorClassifier.locTest.labels.label |>
+        x -> TumorClassifier.Data.encodeLabels(x; labelType=class, type=Int64)
+    labelEnc = class == :binary ? (0:1) : (1:4)
+    y = onehotbatch(y, labelEnc)
+    return DataLoader((X, y), batchsize=batchsize)
+end
+
+"Learning loss function"
+loss(ŷ, y) = logitcrossentropy(ŷ, y)
+
+"Accuracy and loss evaluator on test points X, y"
 function evalLossAccuracy(loader, model, device)
     l = 0f0
     acc = 0
@@ -97,105 +98,128 @@ function evalLossAccuracy(loader, model, device)
         acc += sum(onecold(ŷ |> cpu) .== onecold(y |> cpu))
         ntot += size(x)[end]
     end
-    return (
-        loss = l/ntot |> round4,
-        acc = acc/ntot*100 |> round4
-    )
+    return (loss = l/ntot |> round4, acc = acc/ntot*100 |> round4)
 end
 
-"Evaluate the number of parameters of a Flux model"
-numParams(model) = sum(length, Flux.params(model))
+## utility functions
+"Returns the number of parameters in an NNlib model"
+num_params(model) = sum(length, Flux.params(model)) 
+"Round to 4 digits"
+round4(x) = round(x, digits=4)
+
+# arguments for the `train` function 
+Base.@kwdef mutable struct Args
+    η = 3e-4             # learning rate
+    λ = 0                # L2 regularizer param, implemented as weight decay
+    batchsize = 128      # batch size
+    epochs = 10          # number of epochs
+    seed = 0             # set seed > 0 for reproducibility
+    use_cuda = true      # if true use cuda (if available)
+    infotime = 1 	     # report every `infotime` epochs
+    checktime = 5        # Save the model every `checktime` epochs. Set to 0 for no checkpoints.
+    tblogger = true      # log training with tensorboard
+    savepath = "runs/"      # results path
+    modelName = "LeNet5"    # .bson save name
+    labelType = :binary     # classifer 'task' selector (bin/multi)
+end
 
 """
-    train(; kwargs...)
+    trainClass(; kwargs...)
 
-LeNet training/evaluation function.
-Reads, encodes, splits into train and test, and wraps X, Y with the `DataLoader` type to feed to model.
+Main training routine for CNN model.
+Modify the training characteristics by passing keyword-args to function call.
 
-Pass keywords arguments (`kwargs`) to `Args` type to modify:
-
-- training epochs: `Args.epoch`
-- learning reate: `Args.η`
-- weight decay: `Arg.λ`
-- batch size: `Args.batchSize`
-- RNG seed: `Args.seed`
-- GPU device switch: `Args.useCUDA`
-- logging behaviour: `Args.checkTime`, `Args.infoTime`, `Args.tbLogger`
-- parameter, model and logging saving path: `Args.savePath`
+See `TumorClassifier.CNN.Args` for keyword possibilities.
 """
-function train(; kwargs...)
-    args = Args(; kwargs...)                    # splat keyword-args from function arguments
-    args.seed > 0 && Random.seed!(args.seed)    # if seed provided, generate reproducible rng
-    useCUDA = args.useCuda && CUDA.functional() # true if GPU/CUDA device available
+function trainClass(; kwargs...)
+    args = Args(; kwargs...)
+    args.seed > 0 && Random.seed!(args.seed)
+    use_cuda = args.use_cuda && CUDA.functional()
 
-    # set training device and log info
-    if useCUDA
+    if use_cuda
         device = gpu
         @info "Training on GPU!"
     else
         device = cpu
-        @info "Training on CPU."
+        @info "Training on CPU"
     end
 
-    ## Load data:
-    trainLoader, testLoader = dataPrepGet(args)
-    @info "Dataset: MRI brain scans: $(trainLoader.nobs) train and $(testLoader.nobs) test examples."
+    ## DATA
+    train_loader, test_loader = getData(args)
+    @info "Dataset MRI scans: $(train_loader.nobs) train and $(test_loader.nobs) test examples"
 
-    ## Model and optimiser:
-    model = leNetModel() |> device # pipe to cpu/gpu
-    @info "LeNet model: $(numParams(model)) trainable parameters."
-
+    ## MODEL AND OPTIMIZER
+    numClasses = args.labelType == :binary ? 2 : 4
+    model = LeNet5(; imgsize=(90,90,1), nclasses=numClasses) |> device
+    @info "LeNet5 model: $(num_params(model)) trainable params"
+    
     ps = Flux.params(model)
 
-    opt = ADAM(args.η) # ADAM optimiser
-    if args.λ > 0 # weight decay / L2 reg.
-        opt = Flux.Optimiser(Flux.WeightDecay(args.λ), opt)
+    opt = ADAM(args.η)
+    if args.λ > 0 # add weight decay, equivalent to L2 regularization
+        opt = Optimiser(WeightDecay(args.λ), opt)
     end
-
-    ## Logging utils:
-    if args.tbLogger
-        tbLogger = TensorBoardLogger.TBLogger(args.savePath, TensorBoardLogger.tb_overwrite)
-        TensorBoardLogger.set_step_increment!(tbLogger, 0) # manual set_step! so set 0 local
-        @info "TensorBoard logging at \"$(args.savePath)\"."
+    
+    ## LOGGING UTILITIES
+    if args.tblogger
+        tblogger = TBLogger(args.savepath, tb_overwrite)
+        set_step_increment!(tblogger, 0) # 0 auto increment since we manually set_step!
+        @info "TensorBoard logging at \"$(args.savepath)\""
     end
-
-    "Training progress report logging function"
+    
     function report(epoch)
-        train = evalLossAccuracy(trainLoader, model, device)
-        test = evalLossAccuracy(testLoader, model, device)
-        println("Epoch: $epoch      Train: $(train)     Test: $(test)")
-        if args.tbLogger
-            TensorBoardLogger.set_step!(tbLogger, epoch)
-            Logging.with_logger(tbLogger) do
-                @info "train"   loss=train.loss     acc=train.acc
-                @info "test"    loss=test.loss      acc=test.acc
+        train = evalLossAccuracy(train_loader, model, device)
+        test = evalLossAccuracy(test_loader, model, device)
+        println("Epoch: $epoch   Train: $(train)   Test: $(test)")
+        if args.tblogger
+            set_step!(tblogger, epoch)
+            with_logger(tblogger) do
+                @info "train" loss=train.loss  acc=train.acc
+                @info "test"  loss=test.loss   acc=test.acc
             end
         end
     end
-
-    ## Training:
+    
+    ## TRAINING
     @info "Start Training"
     report(0)
     for epoch in 1:args.epochs
-        ProgressMeter.@showprogress for (x, y) in trainLoader
+        @showprogress for (x, y) in train_loader
             x, y = x |> device, y |> device
-            gs = Flux.gradient(ps) do
-                ŷ = model(x)
-                loss(ŷ, y)
-            end
-            Flux.Optimise.update!(opt, ps, gs)
+            gs = Flux.gradient(ps) do # backprop grad over hyp-params
+                    ŷ = model(x) # make current model pred. on current model
+                    loss(ŷ, y)
+                end
+
+            Flux.Optimise.update!(opt, ps, gs) # where the hyp-params get upd.
         end
-        ## Printing and logging training:
-        mod(epoch, args.infoTime) == 0 && report(epoch)
-        if args.checkTime > 0 && mod(epoch, args.checkTime) == 0
-            !ispath(args.savePath) && mkpath(args.savePath) # create logging path if not exist
-            modelPath = joinpath(args.savePath, "model.bson")
-            let model = cpu(model) # revert model back to cpu for save
-                BSON.@save modelPath model epoch # BSON save macro
+        
+        ## Printing and logging
+        epoch % args.infotime == 0 && report(epoch)
+        if args.checktime > 0 && epoch % args.checktime == 0
+            !ispath(args.savepath) && mkpath(args.savepath)
+            modelpath = joinpath(args.savepath, args.modelName * ".bson") 
+            let model = cpu(model) #return model to cpu before serialization
+                BSON.@save modelpath model epoch
             end
-            @info "Model saved in \"$(modelPath)\""
+            @info "Model saved in \"$(modelpath)\""
         end
     end
+end
+
+"evaluate final model performace on released test set (200 images dataset)"
+function evalModelWithTestSet(modelPath, labelType, batchsize, useCuda=false)
+    model = BSON.load(modelPath)[:model]
+    useCuda = useCuda && CUDA.functional()    
+    if useCuda
+        device = gpu
+        @info "Inference on GPU!"
+    else
+        device = cpu
+        @info "Inference on CPU"
+    end
+    loader = testDataLoader(batchsize, labelType)
+    return evalLossAccuracy(loader, model, device)
 end
 
 end # module
