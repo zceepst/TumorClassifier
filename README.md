@@ -5,7 +5,7 @@ ELEC0134 project at UCL for classifying brain scans and their corresponding tumo
 ## Coverage:
 
 Development and runtime on JuliaHub cloud instance provider.
-More information available [here](https://juliahub.com/lp/.
+More information available [here](https://juliahub.com/lp/).
 
 Instance details:
 
